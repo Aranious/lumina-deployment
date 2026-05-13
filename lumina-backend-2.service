@@ -14,7 +14,7 @@ ExecStart=/home/atraxinous/projects/lumina/backend/venv/bin/gunicorn lumina.wsgi
     --bind 127.0.0.1:8001 \
     --workers 2 \
     --timeout 120 \
-    --graceful-timeout 30
+    --graceful-timeout 30 \
     --preload
 Restart=always
 RestartSec=3
