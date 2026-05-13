@@ -1,0 +1,23 @@
+[Unit]
+Description=Lumina Django (Gunicorn)
+After=network.target
+
+[Service]
+User=atraxinous
+Group=atraxinous
+WorkingDirectory=/home/atraxinous/projects/lumina/backend
+Environment="PATH=/home/atraxinous/projects/lumina/backend/venv/bin"
+Environment="DJANGO_SETTINGS_MODULE=lumina.settings"
+Environment="PYTHONPATH=/home/atraxinous/projects/lumina/backend"
+Environment="ALLOWED_HOSTS=lumina.localhost,127.0.0.1"
+ExecStart=/home/atraxinous/projects/lumina/backend/venv/bin/gunicorn lumina.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --workers 4 \
+    --timeout 120 \
+    --graceful-timeout 30
+    --preload
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
