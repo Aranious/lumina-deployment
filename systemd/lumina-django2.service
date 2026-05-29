@@ -13,11 +13,13 @@ Environment="ALLOWED_HOSTS=lumina.localhost,127.0.0.1"
 ExecStart=/home/atraxinous/projects/lumina/backend/venv/bin/gunicorn lumina.wsgi:application \
     --bind 127.0.0.1:8001 \
     --workers 2 \
-    --timeout 120 \
+    --timeout 240 \
     --graceful-timeout 30 \
     --preload
 Restart=always
 RestartSec=3
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

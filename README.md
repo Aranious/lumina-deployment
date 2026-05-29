@@ -1,36 +1,49 @@
+The root cause: `node_modules/.bin/next` is a shell script, not a Node.js file. PM2 tried to run it as JavaScript, causing the syntax error you saw. The fix is to point PM2 at the real entry point: `node_modules/next/dist/bin/next`.
+
+I’ve written a complete, corrected `README.md` for your `lumina-deployment` repository. It includes:
+
+- The fixed PM2 start commands.
+- An optional ecosystem file for convenience.
+- Clear steps for rebuilding and restarting after code changes.
+- Instructions for the backend, Nginx, SSL, etc.
+
+---
+
+```markdown
 # Lumina Deployment
 
-This repository contains all infrastructure and configuration files for deploying **Lumina** (Django + Next.js) on a Linux VPS **without Docker**.
-
-It keeps the main application code clean by separating deployment-specific files (Nginx, systemd services, etc.).
+Infrastructure and configuration files for deploying **Lumina** (Django + Next.js) on a Linux VPS **without Docker**.
 
 ---
 
 ## Overview
 
 - **Reverse Proxy**: Nginx (with load balancing)
-- **Backend**: Django + Gunicorn (2 instances)
-- **Frontend**: Next.js 15 (2 instances via PM2)
+- **Backend**: Django + Gunicorn (2 instances on ports 8000, 8001)
+- **Frontend**: Next.js 15 (2 production instances on ports 3000, 3001, managed by PM2)
 - **Database**: PostgreSQL + pgvector
-- **Task Queue**: Redis + Celery (configured in main repo)
-- **Process Manager**: systemd + PM2
+- **Task Queue**: Redis + Celery (configured in the main repo)
+- **Process Manager**: systemd (Django & Celery), PM2 (Next.js)
 
 ---
 
 ## Folder Structure
+```
 
-```bash
 lumina-deployment/
 ├── nginx/
-│   └── lumina.conf
+│ └── lumina.conf
 ├── systemd/
-│   ├── lumina-django.service
-│   └── lumina-django2.service
+│ ├── lumina-django.service
+│ ├── lumina-django2.service
+│ ├── celery-worker.service
+│ └── celery-beat.service
 ├── scripts/
-│   └── renew-ssl.sh
+│ └── renew-ssl.sh
 ├── README.md
 └── .env.example
-```
+
+````
 
 ---
 
@@ -38,7 +51,7 @@ lumina-deployment/
 
 - Ubuntu 22.04 / 24.04
 - Python 3.11+
-- Node.js 20+ + pnpm
+- Node.js 20+ and pnpm
 - PostgreSQL 14+ with `pgvector` extension
 - Redis
 - Nginx
@@ -54,7 +67,7 @@ lumina-deployment/
 cd /home/atraxinous/projects
 git clone https://github.com/Aranious/lumina.git
 git clone https://github.com/Aranious/lumina-deployment.git
-```
+````
 
 ### 2. Backend Setup (Django)
 
@@ -74,7 +87,59 @@ python manage.py migrate
 ```bash
 cd /home/atraxinous/projects/lumina/frontend
 pnpm install
+
+# Production build
 pnpm build
+```
+
+**After building, start the production servers with PM2:**
+
+```bash
+# IMPORTANT: Use the real Node.js entry point, not the shell script!
+pm2 start node_modules/next/dist/bin/next --name "lumina-frontend" -- start
+
+# Second instance on port 3001
+pm2 start node_modules/next/dist/bin/next --name "lumina-frontend-2" -- start -p 3001
+
+# Save process list and enable startup on boot
+pm2 save
+pm2 startup   # follow the on-screen instructions to install the startup hook
+```
+
+**Optional:** Use an ecosystem file for easier management. Create `ecosystem.config.js` in the frontend directory:
+
+```javascript
+module.exports = {
+  apps: [
+    {
+      name: "lumina-frontend",
+      script: "node_modules/next/dist/bin/next",
+      args: "start",
+      cwd: "/home/atraxinous/projects/lumina/frontend",
+      env: {
+        NODE_ENV: "production",
+        PORT: 3000,
+      },
+    },
+    {
+      name: "lumina-frontend-2",
+      script: "node_modules/next/dist/bin/next",
+      args: "start",
+      cwd: "/home/atraxinous/projects/lumina/frontend",
+      env: {
+        NODE_ENV: "production",
+        PORT: 3001,
+      },
+    },
+  ],
+};
+```
+
+Then start both with:
+
+```bash
+pm2 start ecosystem.config.js --env production
+pm2 save
 ```
 
 ### 4. Copy Configuration Files
@@ -82,11 +147,12 @@ pnpm build
 ```bash
 # Nginx
 sudo cp ../lumina-deployment/nginx/lumina.conf /etc/nginx/sites-available/lumina
-sudo ln -s /etc/nginx/sites-available/lumina /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/lumina /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl restart nginx
 
-# Systemd services
-sudo cp ../lumina-deployment/systemd/* /etc/systemd/system/
+# Systemd services (Django, Celery)
+sudo cp ../lumina-deployment/systemd/lumina-*.service /etc/systemd/system/
+sudo cp ../lumina-deployment/systemd/celery-*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 
@@ -96,46 +162,57 @@ sudo systemctl daemon-reload
 # Django (Gunicorn)
 sudo systemctl enable --now lumina-django lumina-django2
 
-# Celery (Worker + Beat)
+# Celery
 sudo systemctl enable --now celery-worker celery-beat
 
-# Next.js (PM2)
-cd /home/atraxinous/projects/lumina/frontend
-pm2 start ecosystem.config.js --env production
-pm2 save
+# Next.js is already running via PM2 (see step 3)
 ```
 
 ---
 
 ## Service Management
 
+### Status
+
 ```bash
-# Status
 sudo systemctl status lumina-django
-sudo systemctl status lumina-django2
 sudo systemctl status celery-worker
-sudo systemctl status celery-beat
 pm2 status
-
-# Restart (after code changes)
-sudo systemctl restart lumina-django lumina-django2
-sudo systemctl restart celery-worker celery-beat
-pm2 restart all
-
-# Logs
-journalctl -u lumina-django -f
-journalctl -u celery-worker -f
-pm2 logs
 ```
 
----
+### Restart after code changes
 
-## Important Notes
+**Backend (Django):**
 
-- **Celery Configuration**: The `celery.py` file and task definitions are in the **main Lumina repository** (`backend/lumina/celery.py`). The systemd services in this repo only run the Celery worker and beat using that configuration.
-- **Environment Variables**: Make sure `.env` or environment variables in the systemd service files include proper Redis and email settings.
-- **Gunicorn**: Two instances (8000 & 8001) for better concurrency and resilience.
-- **Next.js**: Served via PM2 for production process management.
+```bash
+cd ~/projects/lumina/backend
+source venv/bin/activate
+python manage.py migrate          # only if models changed
+python manage.py collectstatic --noinput
+sudo systemctl restart lumina-django lumina-django2
+sudo systemctl restart celery-worker celery-beat
+```
+
+**Frontend (Next.js):**
+
+```bash
+cd ~/projects/lumina/frontend
+pnpm build
+pm2 restart all
+```
+
+### Logs
+
+```bash
+# Django
+journalctl -u lumina-django -f
+
+# Celery
+journalctl -u celery-worker -f
+
+# Next.js (PM2)
+pm2 logs
+```
 
 ---
 
@@ -144,9 +221,9 @@ pm2 logs
 Located at `nginx/lumina.conf`. It handles:
 
 - HTTP → HTTPS redirect
-- Load balancing between Django instances
-- Load balancing between Next.js instances
-- Efficient serving of `/static/` and `/media/`
+- Load balancing between two Gunicorn instances (8000/8001)
+- Load balancing between two Next.js instances (3000/3001)
+- Serving `/static/` and `/media/` directly from the filesystem
 
 ---
 
@@ -154,11 +231,26 @@ Located at `nginx/lumina.conf`. It handles:
 
 ```bash
 sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d lumina.com
+sudo certbot --nginx -d your-domain.com
 ```
+
+---
+
+## Important Notes
+
+- **The Next.js production server MUST be started after every build.**  
+  PM2 is the recommended process manager. Never use `pnpm dev` in production.
+- The `node_modules/.bin/next` file is a shell script – do **not** try to run it with PM2. Use `node_modules/next/dist/bin/next` instead (as shown above).
+- Celery configuration lives in the main Lumina repository (`backend/lumina/celery.py`).
+- Environment variables (e.g., `DATABASE_URL`, `REDIS_URL`, `EMAIL_HOST_PASSWORD`) should be set in the systemd service files or in a `.env` file loaded by Django.
 
 ---
 
 ## Related Repositories
 
-- **[Lumina Main Application](https://github.com/Aranious/lumina)** — Source code, models, views, and Celery config
+- **[Lumina Main Application](https://github.com/Aranious/lumina)** – Source code, models, views, Celery config
+
+```
+
+Replace your current `README.md` in the `lumina-deployment` repo with this content. Then, any future deployment (or re‑deployment after pulling changes) will work correctly by following these instructions.
+```
