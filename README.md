@@ -193,6 +193,16 @@ sudo systemctl restart lumina-django lumina-django2
 sudo systemctl restart celery-worker celery-beat
 ```
 
+---
+
+### Docker Redis
+
+```bash
+docker run -d -p 6379:6379 --name redis-lumina --restart unless-stopped redis:latest
+```
+
+---
+
 **Frontend (Next.js):**
 
 ```bash
