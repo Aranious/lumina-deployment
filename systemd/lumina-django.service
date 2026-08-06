@@ -12,7 +12,7 @@ Environment="PYTHONPATH=/home/atraxinous/projects/lumina/backend"
 Environment="ALLOWED_HOSTS=lumina.localhost,127.0.0.1"
 ExecStart=/home/atraxinous/projects/lumina/backend/venv/bin/gunicorn lumina.wsgi:application \
     --bind 127.0.0.1:8000 \
-    --workers 4 \
+    --workers 2 \
     --timeout 240 \
     --graceful-timeout 30 \
     --preload
